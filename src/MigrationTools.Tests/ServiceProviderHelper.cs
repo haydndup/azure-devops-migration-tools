@@ -1,6 +1,9 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging.Abstractions;
-using MigrationTools.Engine.Containers;
+using MigrationTools._EngineV1.Containers;
+using MigrationTools.EndpointEnrichers;
+using MigrationTools.Endpoints;
+using MigrationTools.EndPoints;
+using MigrationTools.Enrichers;
 using MigrationTools.Processors;
 
 namespace MigrationTools.Tests
@@ -9,9 +12,8 @@ namespace MigrationTools.Tests
     {
         internal static ServiceProvider GetWorkItemMigrationProcessor()
         {
-            var logger = new NullLogger<WorkItemMigrationProcessor>();
             var services = new ServiceCollection();
-            services.AddApplicationInsightsTelemetryWorkerService();
+            services.AddMigrationToolServicesForUnitTests();
 
             // Containers
             services.AddSingleton<ProcessorContainer>();
@@ -23,7 +25,13 @@ namespace MigrationTools.Tests
             services.AddSingleton<ITelemetryLogger, TelemetryClientAdapter>();
 
             // Processors
-            services.AddSingleton<WorkItemMigrationProcessor>();
+            services.AddSingleton<WorkItemTrackingProcessor>();
+            services.AddTransient<ProcessorEnricherContainer>();
+            services.AddTransient<EndpointContainer>();
+
+            //Endpoints
+            services.AddTransient<InMemoryWorkItemEndpoint>();
+            services.AddTransient<EndpointEnricherContainer>();
 
             return services.BuildServiceProvider();
         }

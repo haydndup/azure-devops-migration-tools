@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Dynamic;
 using System.Linq;
 using Microsoft.TeamFoundation.WorkItemTracking.Client;
-using MigrationTools.Configuration;
-using MigrationTools.DataContracts;
+using MigrationTools._EngineV1.Configuration;
+using MigrationTools._EngineV1.DataContracts;
+using Newtonsoft.Json;
 using Serilog;
 
 namespace MigrationTools
@@ -27,37 +29,62 @@ namespace MigrationTools
 
         public static void SaveToAzureDevOps(this WorkItemData context)
         {
+            Log.Debug("TfsExtensions::SaveToAzureDevOps");
             if (context == null) throw new ArgumentNullException(nameof(context));
             var workItem = (WorkItem)context.internalObject;
             var fails = workItem.Validate();
             if (fails.Count > 0)
             {
-                Log.Warning("Work Item is not ready to save as it has some invalid fields. This may not result in an error. Enable LogLevel as 'Debug' in the ocnfig to see more.");
+                Log.Warning("Work Item is not ready to save as it has some invalid fields. This may not result in an error. Enable LogLevel as 'Debug' in the config to see more.");
                 Log.Debug("--------------------------------------------------------------------------------------------------------------------");
                 Log.Debug("--------------------------------------------------------------------------------------------------------------------");
                 foreach (Field f in fails)
                 {
-                    Log.Debug("   Invalid Field: [Id:{CurrentRevisionWorkItemId}/{CurrentRevisionWorkItemRev}][Type:{CurrentRevisionWorkItemTypeName}][IsDirty:{IsDirty}][ReferenceName:{FieldReferenceName}][Value: {FieldValue}]",
-                       new Dictionary<string, object>() {
-                               {"CurrentRevisionWorkItemId", workItem.Id },
-                               {"CurrentRevisionWorkItemRev", workItem.Rev },
-                               {"CurrentRevisionWorkItemTypeName",  workItem.Type},
-                               {"IsDirty", f.IsDirty },
-                               {"FieldReferenceName", f.ReferenceName },
-                               {"FieldValue", f.Value }
-                       });
-                    Log.Verbose("{   Field Object: {field}", f);
+                    Log.Debug("Invalid Field Object:\r\n{Field}", f.ToJson());
                 }
                 Log.Debug("--------------------------------------------------------------------------------------------------------------------");
                 Log.Debug("--------------------------------------------------------------------------------------------------------------------");
             }
             workItem.Fields["System.ChangedBy"].Value = "Migration";
+            Log.Verbose("TfsExtensions::SaveToAzureDevOps::Save()");
             workItem.Save();
             context.RefreshWorkItem();
         }
 
+        public static string ToJson(this Field f)
+        {
+            Log.Debug("TfsExtensions::ToJson");
+            dynamic expando = new ExpandoObject();
+            expando.WorkItemId = f.WorkItem.Id;
+            expando.CurrentRevisionWorkItemRev = f.WorkItem.Rev;
+            expando.CurrentRevisionWorkItemTypeName = f.WorkItem.Type.Name;
+            expando.Name = f.Name;
+            expando.ReferenceName = f.ReferenceName;
+            expando.Value = f.Value;
+            expando.OriginalValue = f.OriginalValue;
+            expando.ValueWithServerDefault = f.ValueWithServerDefault;
+
+            expando.Status = f.Status;
+            expando.IsRequired = f.IsRequired;
+            expando.IsEditable = f.IsEditable;
+            expando.IsDirty = f.IsDirty;
+            expando.IsComputed = f.IsComputed;
+            expando.IsChangedByUser = f.IsChangedByUser;
+            expando.IsChangedInRevision = f.IsChangedInRevision;
+            expando.HasPatternMatch = f.HasPatternMatch;
+
+            expando.IsLimitedToAllowedValues = f.IsLimitedToAllowedValues;
+            expando.HasAllowedValuesList = f.HasAllowedValuesList;
+            expando.AllowedValues = f.AllowedValues;
+            expando.IdentityFieldAllowedValues = f.IdentityFieldAllowedValues;
+            expando.ProhibitedValues = f.ProhibitedValues;
+
+            return JsonConvert.SerializeObject(expando, Formatting.Indented);
+        }
+
         public static void RefreshWorkItem(this WorkItemData context)
         {
+            Log.Debug("TfsExtensions::RefreshWorkItem");
             var workItem = (WorkItem)context.internalObject;
             context.Id = workItem.Id.ToString();
             context.Type = workItem.Type.Name;
@@ -68,7 +95,7 @@ namespace MigrationTools
             context.ProjectName = workItem?.Project?.Name;
             context.Fields = workItem.Fields.AsDictionary();
             context.Revisions = (from Revision x in workItem.Revisions
-                                 select new RevisionItem()
+                                 select new _EngineV1.DataContracts.RevisionItem()
                                  {
                                      Index = x.Index,
                                      Number = Convert.ToInt32(x.Fields["System.Rev"].Value),
@@ -78,6 +105,7 @@ namespace MigrationTools
 
         public static WorkItemData AsWorkItemData(this WorkItem context)
         {
+            Log.Debug("TfsExtensions::AsWorkItemData");
             var internalWorkItem = new WorkItemData
             {
                 internalObject = context
@@ -109,6 +137,7 @@ namespace MigrationTools
             }
             return list;
         }
+
         public static List<WorkItemData> ToWorkItemDataList(this WorkItemCollection collection)
         {
             List<WorkItemData> list = new List<WorkItemData>();

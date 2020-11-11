@@ -1,63 +1,52 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using MigrationTools.DataContracts;
-using MigrationTools.Enrichers;
+using MigrationTools.EndpointEnrichers;
+using MigrationTools.Options;
 
 namespace MigrationTools.Endpoints
 {
     public abstract class WorkItemEndpoint : IWorkItemSourceEndPoint, IWorkItemTargetEndPoint
     {
-        protected List<WorkItemData> _innerList = new List<WorkItemData>();
-        protected IWorkItemQuery _WorkItemStoreQuery;
-        protected List<IWorkItemEnricher> _innerEnrichers = new List<IWorkItemEnricher>();
+        private IEndpointOptions _InnerOptions;
+        private List<IEndpointEnricher> _EndpointEnrichers;
+        public EndpointDirection Direction => _InnerOptions.Direction;
 
-        public WorkItemEndpoint(IOptions<EndpointOptions> endpointOptions)
+        public WorkItemEndpoint(EndpointEnricherContainer endpointEnrichers, IServiceProvider services, ITelemetryLogger telemetry, ILogger<WorkItemEndpoint> logger)
         {
-            EndpointOptions = endpointOptions.Value;
+            EndpointEnrichers = endpointEnrichers;
+            Services = services;
+            Telemetry = telemetry;
+            Log = logger;
+            _EndpointEnrichers = new List<IEndpointEnricher>();
         }
 
-        public int Count { get { return _innerList.Count; } }
+        public EndpointEnricherContainer EndpointEnrichers { get; }
 
-        public IEnumerable<WorkItemData> WorkItems { get { return _innerList; } }
+        public IEnumerable<IWorkItemEndpointSourceEnricher> SourceEnrichers => _EndpointEnrichers.Where(e => e.GetType().IsAssignableFrom(typeof(IWorkItemEndpointSourceEnricher))).Select(e => (IWorkItemEndpointSourceEnricher)e);
+        public IEnumerable<IWorkItemEndpointTargetEnricher> TargetEnrichers => _EndpointEnrichers.Where(e => e.GetType().IsAssignableFrom(typeof(IWorkItemEndpointTargetEnricher))).Select(e => (IWorkItemEndpointTargetEnricher)e);
 
-        public IEnumerable<IWorkItemSourceEnricher> SourceEnrichers => (from e in _innerEnrichers where e is IWorkItemSourceEnricher select (IWorkItemSourceEnricher)e);
+        public abstract int Count { get; }
 
-        public IEnumerable<IWorkItemTargetEnricher> TargetEnrichers => (from e in _innerEnrichers where e is IWorkItemTargetEnricher select (IWorkItemTargetEnricher)e);
+        protected IServiceProvider Services { get; }
+        protected ITelemetryLogger Telemetry { get; }
+        protected ILogger<WorkItemEndpoint> Log { get; }
 
-        public IEndpointOptions EndpointOptions { get; }
-
-        public virtual void Configure(IWorkItemQuery query, List<IWorkItemEnricher> enrichers)
+        public virtual void Configure(IEndpointOptions options)
         {
-            _WorkItemStoreQuery = query ?? throw new ArgumentNullException(nameof(query));
-            if (enrichers != null)
-            {
-                _innerEnrichers = enrichers;
-            }
-
-            RefreshStore();
+            Log.LogDebug("WorkItemEndpoint::Configure");
+            _InnerOptions = options;
+            EndpointEnrichers.ConfigureEnrichers(_InnerOptions.Enrichers);
         }
 
-        public virtual void Filter(IEnumerable<WorkItemData> workItems)
-        {
-            var ids = (from x in workItems.ToList() select x.Id);
-            _innerList = (from x in _innerList
-                          where !ids.Contains(x.Id)
-                          select x).ToList();
-        }
+        public abstract void Filter(IEnumerable<WorkItemData> workItems);
 
-        public virtual IEnumerable<WorkItemData> GetWorkItems()
-        {
-            return _innerList;
-        }
+        public abstract IEnumerable<WorkItemData> GetWorkItems();
 
-        public abstract void PersistWorkItem(WorkItemData source);
+        public abstract IEnumerable<WorkItemData> GetWorkItems(QueryOptions query);
 
-        protected virtual void RefreshStore()
-        {
-            _innerList.Clear();
-            _innerList.AddRange(_WorkItemStoreQuery.GetWorkItems());
-        }
+        public abstract void PersistWorkItem(WorkItemData sourceWorkItem);
     }
 }

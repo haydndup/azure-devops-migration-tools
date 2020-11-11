@@ -1,13 +1,14 @@
 ﻿using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using MigrationTools.DataContracts;
+using MigrationTools._EngineV1.Clients;
+using MigrationTools._EngineV1.DataContracts;
 
 namespace MigrationTools.Clients.Tests
 {
     [TestClass()]
     public class WorkItemMigrationClientTests
     {
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void TestGetWorkItems()
         {
             IWorkItemMigrationClient sink = new WorkItemMigrationClientMock();
@@ -16,7 +17,7 @@ namespace MigrationTools.Clients.Tests
             Assert.IsTrue(list.Count() == 5);
         }
 
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void TestPersistNewWorkItem()
         {
             IWorkItemMigrationClient sink = new WorkItemMigrationClientMock();
@@ -26,7 +27,7 @@ namespace MigrationTools.Clients.Tests
             Assert.IsTrue(list.Count() == 6);
         }
 
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void TestpersistExistingItem()
         {
             IWorkItemMigrationClient sink = new WorkItemMigrationClientMock();

@@ -12,15 +12,16 @@ using Microsoft.Extensions.Logging;
 using Microsoft.TeamFoundation.WorkItemTracking.Client;
 using Microsoft.TeamFoundation.WorkItemTracking.Proxy;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
-using Microsoft.VisualStudio.Services.Client;
 using Microsoft.VisualStudio.Services.WebApi.Patch.Json;
 using MigrationTools;
-using MigrationTools.Clients;
-using MigrationTools.Configuration;
-using MigrationTools.Configuration.Processing;
-using MigrationTools.DataContracts;
-using MigrationTools.Engine.Processors;
+using MigrationTools._EngineV1.Clients;
+using MigrationTools._EngineV1.Configuration;
+using MigrationTools._EngineV1.Configuration.Processing;
+using MigrationTools._EngineV1.DataContracts;
+using MigrationTools._EngineV1.Enrichers;
+using MigrationTools._EngineV1.Processors;
 using MigrationTools.Enrichers;
+using MigrationTools.ProcessorEnrichers;
 using Newtonsoft.Json;
 using Serilog.Context;
 using Serilog.Events;
@@ -38,11 +39,13 @@ namespace VstsSyncMigrator.Engine
         private WorkItemMigrationConfig _config;
         private List<String> _ignore;
         private WorkItemTrackingHttpClient _witClient;
-        private IAttachmentMigrationEnricher attachmentEnricher;
+
         private ILogger contextLog;
-        private IWorkItemEnricher embededImagesEnricher;
+        private IAttachmentMigrationEnricher attachmentEnricher;
+        private IWorkItemProcessorEnricher embededImagesEnricher;
         private TfsGitRepositoryEnricher gitRepositoryEnricher;
         private TfsNodeStructureEnricher nodeStructureEnricher;
+        private TfsValidateRequiredField validateConfig;
         private IDictionary<string, double> processWorkItemMetrics = null;
         private IDictionary<string, string> processWorkItemParamiters = null;
         private TfsWorkItemLinkEnricher workItemLinkEnricher;
@@ -58,6 +61,7 @@ namespace VstsSyncMigrator.Engine
         public override void Configure(IProcessorConfig config)
         {
             _config = (WorkItemMigrationConfig)config;
+            validateConfig = Services.GetRequiredService<TfsValidateRequiredField>();
         }
 
         internal void TraceWriteLine(LogEventLevel level, string message, Dictionary<string, object> properties = null)
@@ -74,21 +78,19 @@ namespace VstsSyncMigrator.Engine
 
         protected override void InternalExecute()
         {
-            Log.LogInformation("Starting ");
+            Log.LogInformation("WorkItemMigrationContext::InternalExecute ");
             if (_config == null)
             {
                 throw new Exception("You must call Configure() first");
             }
             var workItemServer = Engine.Source.GetService<WorkItemServer>();
-            workItemLinkEnricher = Services.GetRequiredService<TfsWorkItemLinkEnricher>();
             attachmentEnricher = new TfsAttachmentEnricher(workItemServer, _config.AttachmentWorkingPath, _config.AttachmentMaxSize);
+            workItemLinkEnricher = Services.GetRequiredService<TfsWorkItemLinkEnricher>();
             embededImagesEnricher = Services.GetRequiredService<TfsEmbededImagesEnricher>();
             gitRepositoryEnricher = Services.GetRequiredService<TfsGitRepositoryEnricher>();
             nodeStructureEnricher = Services.GetRequiredService<TfsNodeStructureEnricher>();
-            VssClientCredentials adoCreds = new VssClientCredentials();
-            _witClient = new WorkItemTrackingHttpClient(Engine.Target.Config.AsTeamProjectConfig().Collection, adoCreds);
+            _witClient = new WorkItemTrackingHttpClient(Engine.Target.Config.AsTeamProjectConfig().Collection, Engine.Target.Credentials);
             //Validation: make sure that the ReflectedWorkItemId field name specified in the config exists in the target process, preferably on each work item type.
-            ConfigValidation();
             PopulateIgnoreList();
 
             Log.LogInformation("Migrating all Nodes before the work item run.");
@@ -112,13 +114,22 @@ namespace VstsSyncMigrator.Engine
                 contextLog.Information("!! After removing all found work items there are {SourceWorkItemCount} remaining to be migrated.", sourceWorkItems.Count());
             }
             //////////////////////////////////////////////////
+
+            var result = validateConfig.ValidatingRequiredField(Engine.Target.Config.AsTeamProjectConfig().ReflectedWorkItemIDFieldName, sourceWorkItems);
+            if (!result)
+            {
+                var ex = new InvalidFieldValueException("Not all work items in scope contain a valid ReflectedWorkItemId Field!");
+                Log.LogError(ex, "Not all work items in scope contain a valid ReflectedWorkItemId Field!");
+                throw ex;
+            }
+            //////////////////////////////////////////////////
             _current = 1;
             _count = sourceWorkItems.Count;
             _elapsedms = 0;
             _totalWorkItem = sourceWorkItems.Count;
-            foreach (WorkItemData sourceWorkItemData in sourceWorkItems)
+            foreach (MigrationTools._EngineV1.DataContracts.WorkItemData sourceWorkItemData in sourceWorkItems)
             {
-                var sourceWorkItem = sourceWorkItemData.ToWorkItem();
+                var sourceWorkItem = TfsExtensions.ToWorkItem(sourceWorkItemData);
                 workItemLog = contextLog.ForContext("SourceWorkItemId", sourceWorkItem.Id);
                 using (LogContext.PushProperty("sourceWorkItemTypeName", sourceWorkItem.Type.Name))
                 using (LogContext.PushProperty("currentWorkItem", _current))
@@ -193,28 +204,7 @@ namespace VstsSyncMigrator.Engine
                 CultureInfo.CurrentCulture, out result);
         }
 
-        /// <summary>
-        /// Validate the current configuration of the both the migrator and the target project
-        /// </summary>
-        private void ConfigValidation()
-        {
-            //Make sure that the ReflectedWorkItemId field name specified in the config exists in the target process, preferably on each work item type
-            var fields = _witClient.GetFieldsAsync(Engine.Target.Config.AsTeamProjectConfig().Project).Result;
-            bool rwiidFieldExists = fields.Any(x => x.ReferenceName == Engine.Target.Config.AsTeamProjectConfig().ReflectedWorkItemIDFieldName || x.Name == Engine.Target.Config.AsTeamProjectConfig().ReflectedWorkItemIDFieldName);
-            contextLog.Information("Found {FieldsFoundCount} work item fields.", fields.Count.ToString("n0"));
-            if (rwiidFieldExists)
-                contextLog.Information("Found '{ReflectedWorkItemIDFieldName}' in this project, proceeding.", Engine.Target.Config.AsTeamProjectConfig().ReflectedWorkItemIDFieldName);
-            else
-            {
-                contextLog.Information("Config file specifies '{ReflectedWorkItemIDFieldName}', which wasn't found.", Engine.Target.Config.AsTeamProjectConfig().ReflectedWorkItemIDFieldName);
-                contextLog.Information("Instead, found:");
-                foreach (var field in fields.OrderBy(x => x.Name))
-                    contextLog.Information("{FieldType} - {FieldName} - {FieldRefName}", field.Type.ToString().PadLeft(15), field.Name.PadRight(20), field.ReferenceName ?? "");
-                throw new Exception("Running a replay migration requires a ReflectedWorkItemId field to be defined in the target project's process.");
-            }
-        }
-
-        private WorkItemData CreateWorkItem_Shell(ProjectData destProject, WorkItemData currentRevisionWorkItem, string destType)
+        private MigrationTools._EngineV1.DataContracts.WorkItemData CreateWorkItem_Shell(ProjectData destProject, MigrationTools._EngineV1.DataContracts.WorkItemData currentRevisionWorkItem, string destType)
         {
             WorkItem newwit;
             var newWorkItemstartTime = DateTime.UtcNow;
@@ -235,7 +225,7 @@ namespace VstsSyncMigrator.Engine
         }
 
         [Obsolete("Replaced be TfsWorkItemMigrationClient.FilterExistingWorkItems ", true)]
-        private List<WorkItemData> FilterByTarget(List<WorkItemData> sourceWorkItems)
+        private List<MigrationTools._EngineV1.DataContracts.WorkItemData> FilterByTarget(List<MigrationTools._EngineV1.DataContracts.WorkItemData> sourceWorkItems)
         {
             contextLog.Debug("FilterByTarget: START");
             var targetQuery =
@@ -249,7 +239,7 @@ namespace VstsSyncMigrator.Engine
             var targetFoundItems = Engine.Target.WorkItems.GetWorkItems(targetQuery);
             contextLog.Debug("FilterByTarget: ... query complete.");
             contextLog.Debug("FilterByTarget: Found {TargetWorkItemCount} based on the WIQLQueryBit in the target system.", targetFoundItems.Count());
-            var targetFoundIds = (from WorkItemData twi in targetFoundItems select Engine.Target.WorkItems.GetReflectedWorkItemId(twi)).ToList();
+            var targetFoundIds = (from MigrationTools._EngineV1.DataContracts.WorkItemData twi in targetFoundItems select Engine.Target.WorkItems.GetReflectedWorkItemId(twi)).ToList();
             //////////////////////////////////////////////////////////
             sourceWorkItems = sourceWorkItems.Where(p => !targetFoundIds.Any(p2 => p2.ToString() == p.Id)).ToList();
             contextLog.Debug("FilterByTarget: After removing all found work items there are {SourceWorkItemCount} remaining to be migrated.", sourceWorkItems.Count());
@@ -288,7 +278,7 @@ namespace VstsSyncMigrator.Engine
         }
 
         // TODO : Make this into the Work Item mapping tool
-        private void PopulateWorkItem(WorkItemData oldWi, WorkItemData newwit, string destType)
+        private void PopulateWorkItem(MigrationTools._EngineV1.DataContracts.WorkItemData oldWi, MigrationTools._EngineV1.DataContracts.WorkItemData newwit, string destType)
         {
             var oldWorkItem = oldWi.ToWorkItem();
             var newWorkItem = newwit.ToWorkItem();
@@ -335,7 +325,7 @@ namespace VstsSyncMigrator.Engine
             fieldMappingTimer.Stop();
         }
 
-        private void ProcessHTMLFieldAttachements(WorkItemData targetWorkItem)
+        private void ProcessHTMLFieldAttachements(MigrationTools._EngineV1.DataContracts.WorkItemData targetWorkItem)
         {
             if (targetWorkItem != null && _config.FixHtmlAttachmentLinks)
             {
@@ -343,7 +333,7 @@ namespace VstsSyncMigrator.Engine
             }
         }
 
-        private void ProcessWorkItem(WorkItemData sourceWorkItem, int retryLimit = 5, int retrys = 0)
+        private void ProcessWorkItem(MigrationTools._EngineV1.DataContracts.WorkItemData sourceWorkItem, int retryLimit = 5, int retrys = 0)
         {
             var witstopwatch = Stopwatch.StartNew();
             var starttime = DateTime.Now;
@@ -369,7 +359,7 @@ namespace VstsSyncMigrator.Engine
                             { "sourceWorkItemRev", sourceWorkItem.Rev },
                             { "ReplayRevisions", _config.ReplayRevisions }}
                         );
-                    List<RevisionItem> revisionsToMigrate = RevisionsToMigrate(sourceWorkItem, targetWorkItem);
+                    List<MigrationTools._EngineV1.DataContracts.RevisionItem> revisionsToMigrate = RevisionsToMigrate(sourceWorkItem, targetWorkItem);
                     if (targetWorkItem == null)
                     {
                         targetWorkItem = ReplayRevisions(revisionsToMigrate, sourceWorkItem, null, _current);
@@ -472,7 +462,7 @@ namespace VstsSyncMigrator.Engine
             _count--;
         }
 
-        private void ProcessWorkItemAttachments(WorkItemData sourceWorkItem, WorkItemData targetWorkItem, bool save = true)
+        private void ProcessWorkItemAttachments(MigrationTools._EngineV1.DataContracts.WorkItemData sourceWorkItem, MigrationTools._EngineV1.DataContracts.WorkItemData targetWorkItem, bool save = true)
         {
             if (targetWorkItem != null && _config.AttachmentMigration && sourceWorkItem.ToWorkItem().Attachments.Count > 0)
             {
@@ -482,7 +472,7 @@ namespace VstsSyncMigrator.Engine
             }
         }
 
-        private void ProcessWorkItemLinks(IWorkItemMigrationClient sourceStore, IWorkItemMigrationClient targetStore, WorkItemData sourceWorkItem, WorkItemData targetWorkItem)
+        private void ProcessWorkItemLinks(IWorkItemMigrationClient sourceStore, IWorkItemMigrationClient targetStore, MigrationTools._EngineV1.DataContracts.WorkItemData sourceWorkItem, MigrationTools._EngineV1.DataContracts.WorkItemData targetWorkItem)
         {
             if (targetWorkItem != null && _config.LinkMigration && sourceWorkItem.ToWorkItem().Links.Count > 0)
             {
@@ -494,7 +484,7 @@ namespace VstsSyncMigrator.Engine
             }
         }
 
-        private WorkItemData ReplayRevisions(List<RevisionItem> revisionsToMigrate, WorkItemData sourceWorkItem, WorkItemData targetWorkItem, int current)
+        private MigrationTools._EngineV1.DataContracts.WorkItemData ReplayRevisions(List<MigrationTools._EngineV1.DataContracts.RevisionItem> revisionsToMigrate, MigrationTools._EngineV1.DataContracts.WorkItemData sourceWorkItem, MigrationTools._EngineV1.DataContracts.WorkItemData targetWorkItem, int current)
         {
             try
             {
@@ -612,23 +602,25 @@ namespace VstsSyncMigrator.Engine
             catch (Exception ex)
             {
                 TraceWriteLine(LogEventLevel.Information, "...FAILED to Save");
-
+                Log.LogInformation("===============================================================");
                 if (targetWorkItem != null)
                 {
                     foreach (Field f in targetWorkItem.ToWorkItem().Fields)
                         TraceWriteLine(LogEventLevel.Information, "{FieldReferenceName} ({FieldName}) | {FieldValue}", new Dictionary<string, object>() { { "FieldReferenceName", f.ReferenceName }, { "FieldName", f.Name }, { "FieldValue", f.Value } });
                 }
+                Log.LogInformation("===============================================================");
                 Log.LogError(ex.ToString(), ex);
+                Log.LogInformation("===============================================================");
             }
 
             return targetWorkItem;
         }
 
-        private List<RevisionItem> RevisionsToMigrate(WorkItemData sourceWorkItem, WorkItemData targetWorkItem)
+        private List<MigrationTools._EngineV1.DataContracts.RevisionItem> RevisionsToMigrate(MigrationTools._EngineV1.DataContracts.WorkItemData sourceWorkItem, MigrationTools._EngineV1.DataContracts.WorkItemData targetWorkItem)
         {
             // just to make sure, we replay the events in the same order as they appeared
             // maybe, the Revisions collection is not sorted according to the actual Revision number
-            List<RevisionItem> sortedRevisions = null;
+            List<MigrationTools._EngineV1.DataContracts.RevisionItem> sortedRevisions = null;
             sortedRevisions = sourceWorkItem.ToWorkItem().Revisions.Cast<Revision>()
                     .Select(x => new RevisionItem
                     {
@@ -666,7 +658,7 @@ namespace VstsSyncMigrator.Engine
             return sortedRevisions;
         }
 
-        private void WorkItemTypeChange(WorkItemData targetWorkItem, bool skipToFinalRevisedWorkItemType, string finalDestType, RevisionItem revision, WorkItemData currentRevisionWorkItem, string destType)
+        private void WorkItemTypeChange(MigrationTools._EngineV1.DataContracts.WorkItemData targetWorkItem, bool skipToFinalRevisedWorkItemType, string finalDestType, MigrationTools._EngineV1.DataContracts.RevisionItem revision, MigrationTools._EngineV1.DataContracts.WorkItemData currentRevisionWorkItem, string destType)
         {
             //If the work item already exists and its type has changed, update its type. Done this way because there doesn't appear to be a way to do this through the store.
             if (!skipToFinalRevisedWorkItemType && targetWorkItem.Type != finalDestType)

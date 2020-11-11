@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using MigrationTools.Configuration;
+using MigrationTools._EngineV1.Configuration;
 
 namespace MigrationTools.Host.Tests
 {
@@ -16,13 +16,13 @@ namespace MigrationTools.Host.Tests
             host = MigrationToolHost.CreateDefaultBuilder(new string[0]).Build();
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L0")]
         public void MigrationHostTest()
         {
             IMigrationEngine mh = host.Services.GetRequiredService<IMigrationEngine>();
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L0")]
         [Ignore("need to ignore for now, untill we get some generic field maps")]
         public void TestEngineExecuteEmptyProcessors()
         {
@@ -32,7 +32,7 @@ namespace MigrationTools.Host.Tests
             me.Run();
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L1")]
         public void TestEngineExecuteEmptyFieldMaps()
         {
             EngineConfiguration ec = host.Services.GetRequiredService<EngineConfiguration>();
@@ -42,7 +42,7 @@ namespace MigrationTools.Host.Tests
             me.Run();
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L3"), TestCategory("L2")]
         public void TestEngineExecuteProcessors()
         {
             EngineConfiguration ec = host.Services.GetRequiredService<EngineConfiguration>();

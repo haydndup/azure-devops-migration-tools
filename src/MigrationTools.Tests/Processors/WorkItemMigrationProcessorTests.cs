@@ -1,5 +1,7 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Collections.Generic;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using MigrationTools.Endpoints;
 using MigrationTools.Tests;
 
 namespace MigrationTools.Processors.Tests
@@ -15,20 +17,19 @@ namespace MigrationTools.Processors.Tests
             Services = ServiceProviderHelper.GetWorkItemMigrationProcessor();
         }
 
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void ConfigureTest()
         {
             var y = new WorkItemMigrationProcessorOptions
             {
                 Enabled = true
             };
-            var x = new WorkItemMigrationProcessor(null, null, null);
+            var x = Services.GetRequiredService<WorkItemTrackingProcessor>();
             x.Configure(y);
-
             Assert.IsNotNull(x);
         }
 
-        [TestMethod()]
+        [TestMethod(), TestCategory("L1")]
         public void RunTest()
         {
             var y = new WorkItemMigrationProcessorOptions
@@ -37,9 +38,13 @@ namespace MigrationTools.Processors.Tests
                 CollapseRevisions = false,
                 ReplayRevisions = true,
                 WorkItemCreateRetryLimit = 5,
-                PrefixProjectToNodes = false
+                PrefixProjectToNodes = false,
+                Endpoints = new List<IEndpointOptions> {
+                    new InMemoryWorkItemEndpointOptions { Direction = EndpointDirection.Source},
+                    new InMemoryWorkItemEndpointOptions { Direction = EndpointDirection.Target }
+                }
             };
-            var x = Services.GetRequiredService<WorkItemMigrationProcessor>();
+            var x = Services.GetRequiredService<WorkItemTrackingProcessor>();
             x.Configure(y);
             x.Execute();
             Assert.AreEqual(ProcessingStatus.Complete, x.Status);

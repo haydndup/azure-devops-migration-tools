@@ -1,6 +1,9 @@
 ﻿using System.IO;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using MigrationTools._EngineV1.Configuration;
+using MigrationTools.Endpoints;
+using MigrationTools.Enrichers;
 using Newtonsoft.Json;
 
 namespace MigrationTools.Configuration.Tests
@@ -8,14 +11,14 @@ namespace MigrationTools.Configuration.Tests
     [TestClass()]
     public class EngineConfigurationBuilderTests
     {
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void BuildDefaultTest()
         {
             var ecb = CreateEngine();
             ecb.BuildDefault();
         }
 
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void BuildFromFileTest()
         {
             HelperCreateDefaultConfigFile();
@@ -23,14 +26,14 @@ namespace MigrationTools.Configuration.Tests
             ecb.BuildFromFile();
         }
 
-        [TestMethod()]
+        [TestMethod(), TestCategory("L0")]
         public void BuildWorkItemMigrationTest()
         {
             var ecb = CreateEngine();
             ecb.BuildWorkItemMigration();
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L0")]
         public void TestDeseraliseFromJson()
         {
             HelperCreateDefaultConfigFile();
@@ -40,13 +43,15 @@ namespace MigrationTools.Configuration.Tests
             sr.Close();
             ec = JsonConvert.DeserializeObject<EngineConfiguration>(configurationjson,
                 new FieldMapConfigJsonConverter(),
-                new ProcessorConfigJsonConverter(),
-                new MigrationClientConfigJsonConverter());
+                        new ProcessorConfigJsonConverter(),
+                        new JsonConverterForEndpointOptions(),
+                        new JsonConverterForEnricherOptions(),
+                        new MigrationClientConfigJsonConverter());
             Assert.AreEqual(10, ec.FieldMaps.Count);
             Assert.AreEqual(12, ec.Processors.Count);
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L0")]
         public void TestSeraliseToJson()
         {
             HelperCreateDefaultConfigFile();
@@ -64,9 +69,11 @@ namespace MigrationTools.Configuration.Tests
             var ecb = CreateEngine();
             EngineConfiguration ec = ecb.BuildDefault();
             string json = JsonConvert.SerializeObject(ecb.BuildDefault(),
-                     new FieldMapConfigJsonConverter(),
-                     new ProcessorConfigJsonConverter(),
-                     new MigrationClientConfigJsonConverter());
+                      new FieldMapConfigJsonConverter(),
+                        new ProcessorConfigJsonConverter(),
+                        new JsonConverterForEndpointOptions(),
+                        new JsonConverterForEnricherOptions(),
+                        new MigrationClientConfigJsonConverter());
             StreamWriter sw = new StreamWriter("configuration.json");
             sw.WriteLine(json);
             sw.Close();

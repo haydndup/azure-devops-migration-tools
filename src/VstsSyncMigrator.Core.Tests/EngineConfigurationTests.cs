@@ -2,14 +2,14 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using MigrationTools;
-using MigrationTools.Configuration;
+using MigrationTools._EngineV1.Configuration;
 
 namespace _VstsSyncMigrator.Engine.Tests
 {
     [TestClass]
     public class EngineConfigurationTests
     {
-        [TestMethod]
+        [TestMethod, TestCategory("L1")]
         public void EngineConfigurationCreate()
         {
             EngineConfiguration ec = new EngineConfiguration
@@ -23,7 +23,7 @@ namespace _VstsSyncMigrator.Engine.Tests
             Assert.AreEqual(ec.Source.AsTeamProjectConfig().Project, "DemoProjs");
         }
 
-        [TestMethod]
+        [TestMethod, TestCategory("L1")]
         public void EngineConfigurationCreateDefault()
         {
             IEngineConfigurationBuilder ecb = new EngineConfigurationBuilder(new NullLogger<EngineConfigurationBuilder>());

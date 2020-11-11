@@ -15,9 +15,4 @@
     <ProjectReference Include="..\MigrationTools\MigrationTools.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Configuration\" />
-    <Folder Include="Endpoints\" />
-  </ItemGroup>
-
 </Project>

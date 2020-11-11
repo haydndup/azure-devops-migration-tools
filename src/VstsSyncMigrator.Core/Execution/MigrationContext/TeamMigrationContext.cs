@@ -6,10 +6,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.TeamFoundation.Client;
 using Microsoft.TeamFoundation.ProcessConfiguration.Client;
 using MigrationTools;
-using MigrationTools.Configuration;
-using MigrationTools.Configuration.Processing;
-using MigrationTools.DataContracts;
-using MigrationTools.Engine.Processors;
+using MigrationTools._EngineV1.Configuration;
+using MigrationTools._EngineV1.Configuration.Processing;
+using MigrationTools._EngineV1.DataContracts;
+using MigrationTools._EngineV1.Processors;
 
 namespace VstsSyncMigrator.Engine
 {
@@ -108,8 +108,11 @@ namespace VstsSyncMigrator.Engine
                                 else
                                 {
                                     targetConfig.TeamSettings.BacklogIterationPath = sourceConfig.TeamSettings.BacklogIterationPath;
+                                    Log.LogDebug("targetConfig.TeamSettings.BacklogIterationPath={BacklogIterationPath}", targetConfig.TeamSettings.BacklogIterationPath);
                                     targetConfig.TeamSettings.IterationPaths = sourceConfig.TeamSettings.IterationPaths;
+                                    Log.LogDebug("targetConfig.TeamSettings.IterationPaths={@IterationPaths}", sourceConfig.TeamSettings.IterationPaths);
                                     targetConfig.TeamSettings.TeamFieldValues = sourceConfig.TeamSettings.TeamFieldValues;
+                                    Log.LogDebug("targetConfig.TeamSettings.TeamFieldValues={@TeamFieldValues}", sourceConfig.TeamSettings.TeamFieldValues);
                                 }
 
                                 targetTSCS.SetTeamSettings(targetConfig.TeamId, targetConfig.TeamSettings);
